@@ -150,6 +150,23 @@
   .kpi-card.tone-soon .value { color: var(--soon); }
   .kpi-card.tone-info .value { color: var(--info); }
   .kpi-card.tone-healthy .value { color: var(--healthy); }
+  .kpi-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s; }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(20,24,31,0.08); }
+  .kpi-card.kpi-active { box-shadow: 0 0 0 2px var(--brand); }
+
+  .active-filter-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 7px 8px 7px 14px;
+    font-size: 12px; font-weight: 600; color: var(--ink);
+    margin-bottom: 14px;
+  }
+  .active-filter-chip button {
+    border: none; background: rgba(0,0,0,0.06);
+    width: 20px; height: 20px; border-radius: 50%;
+    cursor: pointer; font-size: 12px; color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+  }
 
   /* ---- Controls ---- */
   .controls-bar {
@@ -187,6 +204,38 @@
     border-radius: 10px; padding: 6px 12px; font-size: 12px; color: var(--muted);
   }
   .par-input input { width: 46px; border: none; background: transparent; font-weight: 700; color: var(--ink); font-size: 13px; }
+
+  .status-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 16px;
+    width: fit-content;
+  }
+  .status-tab {
+    display: flex; align-items: center; gap: 7px;
+    border: none; background: transparent;
+    padding: 8px 14px;
+    border-radius: 9px;
+    font-size: 13px; font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .status-tab .count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: rgba(0,0,0,0.06);
+    padding: 1px 7px;
+    border-radius: 999px;
+  }
+  .status-tab.active { background: var(--ink); color: white; }
+  .status-tab.active .count { background: rgba(255,255,255,0.18); }
+  .status-tab.tab-out.active { background: var(--critical); }
+  .status-tab.tab-restock.active { background: var(--soon); }
+  .status-tab.tab-stocked.active { background: var(--healthy); }
 
   /* ---- Queue ---- */
   .queue-section-title {
@@ -304,7 +353,7 @@
 const state = {
   rows: [],
   completed: new Set(),
-  filters: { search: '', brand: '', category: '', priority: '', criticalOnly: false, showCompleted: false },
+  filters: { search: '', brand: '', category: '', priority: '', statusTab: 'all', showCompleted: false, kpiKey: null },
   parLevel: 10,
 };
 
@@ -335,21 +384,26 @@ function classify(row) {
   const needsPurchasing = row.floor < par && row.boh <= 0;
 
   let tone, badge;
-  if (row.floor <= 0) {
+  if (row.floor >= par) {
+    tone = 'healthy';
+    badge = '✅ STOCKED';
+  } else if (row.boh <= 0) {
+    // Nothing available in the back to move — regardless of floor count,
+    // this can't actually be restocked right now, so it's effectively out.
     tone = 'critical';
-    badge = row.boh > 0 ? '🔥 RESTOCK NOW' : '❌ OUT OF STOCK';
+    badge = '❌ OUT OF STOCK';
+  } else if (row.floor <= 0) {
+    tone = 'critical';
+    badge = '🔥 RESTOCK NOW';
   } else if (row.floor <= Math.ceil(par * 0.3)) {
     tone = 'critical';
     badge = '🔥 HIGH PRIORITY';
   } else if (row.floor < Math.ceil(par * 0.6)) {
     tone = 'soon';
     badge = '⚠ LOW STOCK';
-  } else if (row.floor < par) {
+  } else {
     tone = 'watch';
     badge = '📦 READY TO MOVE';
-  } else {
-    tone = 'healthy';
-    badge = '✅ STOCKED';
   }
 
   return { ...row, tone, badge, suggested, needsPurchasing };
@@ -428,38 +482,30 @@ function renderDashboard() {
   const stage = document.getElementById('dashboardStage');
   const rows = state.rows;
 
-  const critical = rows.filter(r => r.tone === 'critical').length;
-  const needsRestock = rows.filter(r => r.tone !== 'healthy').length;
-  const totalUnits = rows.reduce((sum, r) => sum + r.suggested, 0);
-  const bohAvailable = rows.reduce((sum, r) => sum + r.boh, 0);
-  const outOfStock = rows.filter(r => r.floor <= 0).length;
-  const healthy = rows.filter(r => r.tone === 'healthy').length;
-
   const brands = [...new Set(rows.map(r => r.brand))].sort();
   const categories = [...new Set(rows.map(r => r.category))].sort();
 
   stage.innerHTML = `
-    <div class="kpi-row">
-      <div class="kpi-card tone-soon"><div class="label">Needs Restock</div><div class="value">${needsRestock}</div></div>
-      <div class="kpi-card tone-critical"><div class="label">Critical Items</div><div class="value">${critical}</div></div>
-      <div class="kpi-card"><div class="label">Units Needed</div><div class="value">${totalUnits}</div></div>
-      <div class="kpi-card tone-info"><div class="label">BOH Available</div><div class="value">${bohAvailable}</div></div>
-      <div class="kpi-card tone-critical"><div class="label">Out of Stock</div><div class="value">${outOfStock}</div></div>
-      <div class="kpi-card tone-healthy"><div class="label">Healthy</div><div class="value">${healthy}</div></div>
-    </div>
+    <div class="kpi-row" id="kpiRow"></div>
+
+    <div id="activeFilterChip"></div>
 
     <div class="controls-bar">
       <input type="text" id="searchInput" placeholder="Search product, SKU, or brand…">
       <select id="brandFilter"><option value="">All brands</option>${brands.map(b => `<option value="${b}">${b}</option>`).join('')}</select>
       <select id="categoryFilter"><option value="">All categories</option>${categories.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
       <div class="par-input">Floor par <input type="number" id="parInput" value="${state.parLevel}" min="1"></div>
-      <div class="toggle-chip" id="criticalToggle">Critical only</div>
       <div class="toggle-chip" id="completedToggle">Show completed</div>
     </div>
+
+    <div class="status-tabs" id="statusTabs"></div>
 
     <div class="queue-section-title">Restock Queue</div>
     <div id="queueList"></div>
   `;
+
+  renderKpiRow();
+  renderActiveFilterChip();
 
   document.getElementById('searchInput').addEventListener('input', e => { state.filters.search = e.target.value.toLowerCase(); renderQueue(); });
   document.getElementById('brandFilter').addEventListener('change', e => { state.filters.brand = e.target.value; renderQueue(); });
@@ -469,18 +515,110 @@ function renderDashboard() {
     state.rows = state.rows.map(r => classify({ productId: r.productId, category: r.category, brand: r.brand, sku: r.sku, floor: r.floor, boh: r.boh, backstock: r.backstock, location: r.location }));
     renderDashboard();
   });
-  document.getElementById('criticalToggle').addEventListener('click', e => {
-    state.filters.criticalOnly = !state.filters.criticalOnly;
-    e.target.classList.toggle('on', state.filters.criticalOnly);
-    renderQueue();
-  });
   document.getElementById('completedToggle').addEventListener('click', e => {
     state.filters.showCompleted = !state.filters.showCompleted;
     e.target.classList.toggle('on', state.filters.showCompleted);
     renderQueue();
   });
 
+  renderStatusTabs();
   renderQueue();
+}
+
+const KPI_DEFS = {
+  needsRestock: { label: 'Needs Restock', predicate: r => r.tone !== 'healthy' },
+  criticalItems: { label: 'Critical Items', predicate: r => r.tone === 'critical' },
+  unitsNeeded: { label: 'Units Needed', predicate: r => r.suggested > 0 },
+  bohAvailable: { label: 'BOH Available', predicate: r => r.boh > 0 },
+  outOfStock: { label: 'Out of Stock', predicate: r => statusGroup(r) === 'out' },
+  healthy: { label: 'Healthy', predicate: r => r.tone === 'healthy' },
+};
+
+function renderKpiRow() {
+  const rows = state.rows.filter(r => !state.completed.has(r.productId));
+  const values = {
+    needsRestock: rows.filter(r => r.tone !== 'healthy').length,
+    criticalItems: rows.filter(r => r.tone === 'critical').length,
+    unitsNeeded: rows.reduce((sum, r) => sum + r.suggested, 0),
+    bohAvailable: rows.reduce((sum, r) => sum + r.boh, 0),
+    outOfStock: rows.filter(r => r.floor <= 0).length,
+    healthy: rows.filter(r => r.tone === 'healthy').length,
+  };
+  const tones = {
+    needsRestock: 'tone-soon', criticalItems: 'tone-critical', unitsNeeded: '',
+    bohAvailable: 'tone-info', outOfStock: 'tone-critical', healthy: 'tone-healthy',
+  };
+
+  const kpiRow = document.getElementById('kpiRow');
+  kpiRow.innerHTML = Object.entries(KPI_DEFS).map(([key, def]) => `
+    <div class="kpi-card ${tones[key]} ${state.filters.kpiKey === key ? 'kpi-active' : ''}" data-kpi="${key}">
+      <div class="label">${def.label}</div>
+      <div class="value">${values[key]}</div>
+    </div>
+  `).join('');
+
+  kpiRow.querySelectorAll('[data-kpi]').forEach(card => {
+    card.addEventListener('click', () => {
+      const key = card.dataset.kpi;
+      state.filters.kpiKey = state.filters.kpiKey === key ? null : key;
+      renderKpiRow();
+      renderActiveFilterChip();
+      renderQueue();
+    });
+  });
+}
+
+function renderActiveFilterChip() {
+  const container = document.getElementById('activeFilterChip');
+  if (!state.filters.kpiKey) { container.innerHTML = ''; return; }
+  const label = KPI_DEFS[state.filters.kpiKey].label;
+  container.innerHTML = `
+    <span class="active-filter-chip">
+      Showing: ${label}
+      <button id="clearKpiFilter">✕</button>
+    </span>`;
+  document.getElementById('clearKpiFilter').addEventListener('click', () => {
+    state.filters.kpiKey = null;
+    renderKpiRow();
+    renderActiveFilterChip();
+    renderQueue();
+  });
+}
+
+function statusGroup(row) {
+  if (row.tone === 'healthy') return 'stocked';
+  // Needs restocking — but only actionable right now if there's stock in
+  // the back of house to move. No BOH means nothing to do but reorder,
+  // which is functionally the same as being out of stock.
+  return row.boh >= 1 ? 'restock' : 'out';
+}
+
+function renderStatusTabs() {
+  const rows = state.rows.filter(r => !state.completed.has(r.productId));
+  const counts = { all: rows.length, out: 0, restock: 0, stocked: 0 };
+  rows.forEach(r => counts[statusGroup(r)]++);
+
+  const tabs = [
+    { key: 'all', label: 'All items', cls: '' },
+    { key: 'out', label: '❌ Out of stock', cls: 'tab-out' },
+    { key: 'restock', label: '🔥 Restock now', cls: 'tab-restock' },
+    { key: 'stocked', label: '✅ Stocked', cls: 'tab-stocked' },
+  ];
+
+  const container = document.getElementById('statusTabs');
+  container.innerHTML = tabs.map(t => `
+    <button class="status-tab ${t.cls} ${state.filters.statusTab === t.key ? 'active' : ''}" data-tab="${t.key}">
+      ${t.label} <span class="count">${counts[t.key]}</span>
+    </button>
+  `).join('');
+
+  container.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.filters.statusTab = btn.dataset.tab;
+      renderStatusTabs();
+      renderQueue();
+    });
+  });
 }
 
 function arrowSVG() {
@@ -500,8 +638,9 @@ function renderQueue() {
       r.brand.toLowerCase().includes(f.search);
     const matchesBrand = !f.brand || r.brand === f.brand;
     const matchesCategory = !f.category || r.category === f.category;
-    const matchesCritical = !f.criticalOnly || r.tone === 'critical';
-    return matchesSearch && matchesBrand && matchesCategory && matchesCritical;
+    const matchesStatus = f.statusTab === 'all' || statusGroup(r) === f.statusTab;
+    const matchesKpi = !f.kpiKey || KPI_DEFS[f.kpiKey].predicate(r);
+    return matchesSearch && matchesBrand && matchesCategory && matchesStatus && matchesKpi;
   });
 
   // Zero stock first, then ascending floor quantity, healthy items last
@@ -525,7 +664,6 @@ function renderQueue() {
     <div class="row-card tone-${r.tone}" data-id="${r.productId}">
       <div>
         <div class="badge tone-${r.tone}">${r.badge}</div>
-        ${r.needsPurchasing ? `<span class="badge tone-info">ℹ NEEDS PURCHASING</span>` : ''}
         <div class="product-name">${r.sku || 'Unnamed product'}</div>
         <div class="product-meta">${r.brand} · ${r.category}</div>
       </div>
@@ -552,6 +690,7 @@ function renderQueue() {
       card.classList.add('fading');
       setTimeout(() => {
         state.completed.add(id);
+        renderStatusTabs();
         renderQueue();
         updateKpisAfterAction();
       }, 380);
@@ -560,16 +699,7 @@ function renderQueue() {
 }
 
 function updateKpisAfterAction() {
-  const rows = state.rows.filter(r => !state.completed.has(r.productId));
-  const kpiValues = document.querySelectorAll('.kpi-card .value');
-  const critical = rows.filter(r => r.tone === 'critical').length;
-  const needsRestock = rows.filter(r => r.tone !== 'healthy').length;
-  const totalUnits = rows.reduce((sum, r) => sum + r.suggested, 0);
-  const bohAvailable = rows.reduce((sum, r) => sum + r.boh, 0);
-  const outOfStock = rows.filter(r => r.floor <= 0).length;
-  const healthy = state.rows.filter(r => r.tone === 'healthy' || state.completed.has(r.productId)).length;
-  const vals = [needsRestock, critical, totalUnits, bohAvailable, outOfStock, healthy];
-  kpiValues.forEach((el, i) => { el.textContent = vals[i]; });
+  renderKpiRow();
 }
 </script>
 </body>
