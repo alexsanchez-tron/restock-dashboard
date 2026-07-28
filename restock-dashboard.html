@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restock Queue — Omnigreen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --bg: #F6F7FB;
+    --card: #FFFFFF;
+    --border: #E7E9F3;
+    --ink: #14181F;
+    --muted: #6B7280;
+
+    --critical: #E11D48;
+    --critical-bg: #FEE7EC;
+    --soon: #F97316;
+    --soon-bg: #FFF1E3;
+    --watch: #CA8A04;
+    --watch-bg: #FEF7DA;
+    --healthy: #10B981;
+    --healthy-bg: #E4F9F0;
+    --info: #3B82F6;
+    --info-bg: #E8F0FE;
+
+    --brand: #6D28D9;
+    --brand2: #9333EA;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', -apple-system, sans-serif;
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  h1, h2, h3, .display { font-family: 'Space Grotesk', 'Inter', sans-serif; }
+
+  .shell { max-width: 1180px; margin: 0 auto; padding: 24px 24px 60px; }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 22px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .logo .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand), var(--brand2));
+  }
+  .topbar-actions { display: flex; gap: 10px; align-items: center; }
+  .btn {
+    border: none;
+    border-radius: 10px;
+    padding: 9px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--brand), var(--brand2));
+    color: white;
+    box-shadow: 0 4px 14px rgba(109,40,217,0.28);
+  }
+  .btn-primary:hover { box-shadow: 0 6px 18px rgba(109,40,217,0.38); }
+  .btn-ghost {
+    background: var(--card);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+
+  /* ---- Upload hero ---- */
+  .upload-hero {
+    background: var(--card);
+    border: 2px dashed var(--border);
+    border-radius: 20px;
+    padding: 60px 30px;
+    text-align: center;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .upload-hero.dragover {
+    border-color: var(--brand);
+    background: #FAF5FF;
+  }
+  .upload-hero .icon {
+    width: 64px; height: 64px;
+    margin: 0 auto 18px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--brand), var(--brand2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  .upload-hero h2 { font-size: 22px; margin: 0 0 8px; }
+  .upload-hero p { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .upload-hero input[type="file"] { display: none; }
+
+  .processing-steps {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    margin-top: 26px;
+    flex-wrap: wrap;
+  }
+  .processing-steps .step {
+    font-size: 12px;
+    color: var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.3s;
+  }
+  .processing-steps .step.active { color: var(--brand); font-weight: 600; }
+  .processing-steps .step.done { color: var(--healthy); font-weight: 600; }
+
+  /* ---- KPI row ---- */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    animation: popIn 0.35s ease;
+  }
+  @keyframes popIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .kpi-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+  .kpi-card .value { font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; }
+  .kpi-card.tone-critical .value { color: var(--critical); }
+  .kpi-card.tone-soon .value { color: var(--soon); }
+  .kpi-card.tone-info .value { color: var(--info); }
+  .kpi-card.tone-healthy .value { color: var(--healthy); }
+
+  /* ---- Controls ---- */
+  .controls-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .controls-bar input[type="text"], .controls-bar select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 13px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .controls-bar input[type="text"] { flex: 1; min-width: 180px; }
+  .toggle-chip {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle-chip.on { background: var(--brand); color: white; border-color: var(--brand); }
+  .par-input {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 6px 12px; font-size: 12px; color: var(--muted);
+  }
+  .par-input input { width: 46px; border: none; background: transparent; font-weight: 700; color: var(--ink); font-size: 13px; }
+
+  /* ---- Queue ---- */
+  .queue-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 26px 0 10px;
+  }
+  .row-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 5px solid transparent;
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
+    display: grid;
+    grid-template-columns: 2.2fr 1.6fr 1fr;
+    gap: 16px;
+    align-items: center;
+    transition: opacity 0.4s, transform 0.4s;
+  }
+  .row-card.fading { opacity: 0; transform: scale(0.97) translateX(12px); }
+  .row-card.tone-critical { border-left-color: var(--critical); }
+  .row-card.tone-soon { border-left-color: var(--soon); }
+  .row-card.tone-watch { border-left-color: var(--watch); }
+  .row-card.tone-healthy { border-left-color: var(--healthy); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 700;
+    padding: 4px 9px; border-radius: 7px;
+    margin-bottom: 8px;
+  }
+  .badge.tone-critical { background: var(--critical-bg); color: var(--critical); }
+  .badge.tone-soon { background: var(--soon-bg); color: var(--soon); }
+  .badge.tone-watch { background: var(--watch-bg); color: var(--watch); }
+  .badge.tone-healthy { background: var(--healthy-bg); color: var(--healthy); }
+  .badge.tone-info { background: var(--info-bg); color: var(--info); margin-left: 6px; }
+
+  .product-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+  .product-meta { font-size: 12px; color: var(--muted); }
+
+  .flow {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .flow .qty-block { text-align: center; }
+  .flow .qty-block .num { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px; }
+  .flow .qty-block .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  .flow .arrow {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--brand);
+  }
+  .flow .arrow .suggested {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; font-weight: 700;
+    background: #F3E8FF; color: var(--brand);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .flow .arrow svg { width: 34px; height: 14px; }
+
+  .row-actions { display: flex; justify-content: flex-end; }
+  .mark-btn {
+    background: var(--healthy-bg);
+    color: var(--healthy);
+    border: none;
+    border-radius: 9px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mark-btn:hover { background: var(--healthy); color: white; }
+
+  .empty-note { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; }
+
+  @media (max-width: 860px) {
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+    .row-card { grid-template-columns: 1fr; }
+    .row-actions { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="logo"><span class="dot"></span> Omnigreen · Restock Queue</div>
+    <div class="topbar-actions" id="topbarActions"></div>
+  </div>
+
+  <div id="uploadStage">
+    <div class="upload-hero" id="dropZone">
+      <div class="icon">📥</div>
+      <h2>Drop today's Inventory Summary here</h2>
+      <p>Or upload the latest exported CSV — sellable and back-of-house stock will be compared automatically.</p>
+      <button class="btn btn-primary" id="browseBtn">Browse file</button>
+      <input type="file" id="fileInput" accept=".csv">
+      <div class="processing-steps" id="steps">
+        <div class="step" data-step="parse">● Parsing inventory</div>
+        <div class="step" data-step="compare">● Comparing rooms</div>
+        <div class="step" data-step="calc">● Calculating restocks</div>
+        <div class="step" data-step="ready">● Dashboard ready</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboardStage" style="display:none;"></div>
+
+</div>
+
+<script>
+const state = {
+  rows: [],
+  completed: new Set(),
+  filters: { search: '', brand: '', category: '', priority: '', criticalOnly: false, showCompleted: false },
+  parLevel: 10,
+};
+
+// ---------- CSV parsing ----------
+function num(v) {
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function processCSV(text) {
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+  const data = parsed.data.map(r => ({
+    productId: r.product_id,
+    category: r.category_name || 'Uncategorized',
+    brand: r.brand_name || 'Unknown',
+    sku: r.sku || '',
+    floor: num(r.sellable_inventory_packed),
+    boh: num(r.back_of_house_packed),
+    backstock: num(r.backstock_packed),
+    location: r.location_name || '',
+  }));
+  return data;
+}
+
+function classify(row) {
+  const par = state.parLevel;
+  const suggested = Math.max(0, Math.min(par - row.floor, row.boh));
+  const needsPurchasing = row.floor < par && row.boh <= 0;
+
+  let tone, badge;
+  if (row.floor <= 0) {
+    tone = 'critical';
+    badge = row.boh > 0 ? '🔥 RESTOCK NOW' : '❌ OUT OF STOCK';
+  } else if (row.floor <= Math.ceil(par * 0.3)) {
+    tone = 'critical';
+    badge = '🔥 HIGH PRIORITY';
+  } else if (row.floor < Math.ceil(par * 0.6)) {
+    tone = 'soon';
+    badge = '⚠ LOW STOCK';
+  } else if (row.floor < par) {
+    tone = 'watch';
+    badge = '📦 READY TO MOVE';
+  } else {
+    tone = 'healthy';
+    badge = '✅ STOCKED';
+  }
+
+  return { ...row, tone, badge, suggested, needsPurchasing };
+}
+
+// ---------- Upload flow ----------
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+document.getElementById('browseBtn').addEventListener('click', () => fileInput.click());
+
+['dragover', 'dragenter'].forEach(evt =>
+  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add('dragover'); })
+);
+['dragleave', 'drop'].forEach(evt =>
+  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('dragover'); })
+);
+dropZone.addEventListener('drop', e => {
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+function stepActive(name) {
+  document.querySelectorAll('.step').forEach(el => {
+    el.classList.remove('active', 'done');
+    const order = ['parse', 'compare', 'calc', 'ready'];
+    const idx = order.indexOf(el.dataset.step);
+    const activeIdx = order.indexOf(name);
+    if (idx < activeIdx) el.classList.add('done');
+    if (idx === activeIdx) el.classList.add('active');
+  });
+}
+
+function handleFile(file) {
+  stepActive('parse');
+  const reader = new FileReader();
+  reader.onload = () => {
+    setTimeout(() => {
+      const rows = processCSV(reader.result);
+      stepActive('compare');
+      setTimeout(() => {
+        state.rows = rows.map(classify);
+        stepActive('calc');
+        setTimeout(() => {
+          stepActive('ready');
+          setTimeout(showDashboard, 300);
+        }, 350);
+      }, 350);
+    }, 300);
+  };
+  reader.readAsText(file);
+}
+
+// ---------- Dashboard render ----------
+function showDashboard() {
+  document.getElementById('uploadStage').style.display = 'none';
+  const stage = document.getElementById('dashboardStage');
+  stage.style.display = 'block';
+
+  document.getElementById('topbarActions').innerHTML = `
+    <button class="btn btn-ghost" id="newUploadBtn">↻ New upload</button>
+  `;
+  document.getElementById('newUploadBtn').addEventListener('click', () => {
+    document.getElementById('dashboardStage').style.display = 'none';
+    document.getElementById('uploadStage').style.display = 'block';
+    document.getElementById('topbarActions').innerHTML = '';
+    ['parse','compare','calc','ready'].forEach(s => stepActive(''));
+  });
+
+  renderDashboard();
+}
+
+function renderDashboard() {
+  const stage = document.getElementById('dashboardStage');
+  const rows = state.rows;
+
+  const critical = rows.filter(r => r.tone === 'critical').length;
+  const needsRestock = rows.filter(r => r.tone !== 'healthy').length;
+  const totalUnits = rows.reduce((sum, r) => sum + r.suggested, 0);
+  const bohAvailable = rows.reduce((sum, r) => sum + r.boh, 0);
+  const outOfStock = rows.filter(r => r.floor <= 0).length;
+  const healthy = rows.filter(r => r.tone === 'healthy').length;
+
+  const brands = [...new Set(rows.map(r => r.brand))].sort();
+  const categories = [...new Set(rows.map(r => r.category))].sort();
+
+  stage.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi-card tone-soon"><div class="label">Needs Restock</div><div class="value">${needsRestock}</div></div>
+      <div class="kpi-card tone-critical"><div class="label">Critical Items</div><div class="value">${critical}</div></div>
+      <div class="kpi-card"><div class="label">Units Needed</div><div class="value">${totalUnits}</div></div>
+      <div class="kpi-card tone-info"><div class="label">BOH Available</div><div class="value">${bohAvailable}</div></div>
+      <div class="kpi-card tone-critical"><div class="label">Out of Stock</div><div class="value">${outOfStock}</div></div>
+      <div class="kpi-card tone-healthy"><div class="label">Healthy</div><div class="value">${healthy}</div></div>
+    </div>
+
+    <div class="controls-bar">
+      <input type="text" id="searchInput" placeholder="Search product, SKU, or brand…">
+      <select id="brandFilter"><option value="">All brands</option>${brands.map(b => `<option value="${b}">${b}</option>`).join('')}</select>
+      <select id="categoryFilter"><option value="">All categories</option>${categories.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
+      <div class="par-input">Floor par <input type="number" id="parInput" value="${state.parLevel}" min="1"></div>
+      <div class="toggle-chip" id="criticalToggle">Critical only</div>
+      <div class="toggle-chip" id="completedToggle">Show completed</div>
+    </div>
+
+    <div class="queue-section-title">Restock Queue</div>
+    <div id="queueList"></div>
+  `;
+
+  document.getElementById('searchInput').addEventListener('input', e => { state.filters.search = e.target.value.toLowerCase(); renderQueue(); });
+  document.getElementById('brandFilter').addEventListener('change', e => { state.filters.brand = e.target.value; renderQueue(); });
+  document.getElementById('categoryFilter').addEventListener('change', e => { state.filters.category = e.target.value; renderQueue(); });
+  document.getElementById('parInput').addEventListener('change', e => {
+    state.parLevel = Math.max(1, parseInt(e.target.value) || 10);
+    state.rows = state.rows.map(r => classify({ productId: r.productId, category: r.category, brand: r.brand, sku: r.sku, floor: r.floor, boh: r.boh, backstock: r.backstock, location: r.location }));
+    renderDashboard();
+  });
+  document.getElementById('criticalToggle').addEventListener('click', e => {
+    state.filters.criticalOnly = !state.filters.criticalOnly;
+    e.target.classList.toggle('on', state.filters.criticalOnly);
+    renderQueue();
+  });
+  document.getElementById('completedToggle').addEventListener('click', e => {
+    state.filters.showCompleted = !state.filters.showCompleted;
+    e.target.classList.toggle('on', state.filters.showCompleted);
+    renderQueue();
+  });
+
+  renderQueue();
+}
+
+function arrowSVG() {
+  return `<svg viewBox="0 0 34 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0 7H30" stroke="currentColor" stroke-width="2"/>
+    <path d="M24 1L32 7L24 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function renderQueue() {
+  const f = state.filters;
+  let rows = state.rows.filter(r => !state.completed.has(r.productId) || f.showCompleted);
+
+  rows = rows.filter(r => {
+    const matchesSearch = !f.search ||
+      r.sku.toLowerCase().includes(f.search) ||
+      r.brand.toLowerCase().includes(f.search);
+    const matchesBrand = !f.brand || r.brand === f.brand;
+    const matchesCategory = !f.category || r.category === f.category;
+    const matchesCritical = !f.criticalOnly || r.tone === 'critical';
+    return matchesSearch && matchesBrand && matchesCategory && matchesCritical;
+  });
+
+  // Zero stock first, then ascending floor quantity, healthy items last
+  const toneOrder = { critical: 0, soon: 1, watch: 2, healthy: 3 };
+  rows.sort((a, b) => {
+    if (a.floor === 0 && b.floor !== 0) return -1;
+    if (b.floor === 0 && a.floor !== 0) return 1;
+    if (toneOrder[a.tone] !== toneOrder[b.tone]) return toneOrder[a.tone] - toneOrder[b.tone];
+    return a.floor - b.floor;
+  });
+
+  const list = document.getElementById('queueList');
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty-note">Nothing matches right now — try adjusting filters.</div>`;
+    return;
+  }
+
+  list.innerHTML = rows.map(r => {
+    const isCompleted = state.completed.has(r.productId);
+    return `
+    <div class="row-card tone-${r.tone}" data-id="${r.productId}">
+      <div>
+        <div class="badge tone-${r.tone}">${r.badge}</div>
+        ${r.needsPurchasing ? `<span class="badge tone-info">ℹ NEEDS PURCHASING</span>` : ''}
+        <div class="product-name">${r.sku || 'Unnamed product'}</div>
+        <div class="product-meta">${r.brand} · ${r.category}</div>
+      </div>
+      <div class="flow">
+        <div class="qty-block"><div class="num">${r.floor}</div><div class="lbl">Floor</div></div>
+        <div class="arrow">
+          ${arrowSVG()}
+          <div class="suggested">+${r.suggested}</div>
+        </div>
+        <div class="qty-block"><div class="num">${r.boh}</div><div class="lbl">Back of House</div></div>
+      </div>
+      <div class="row-actions">
+        ${isCompleted
+          ? `<span class="badge tone-healthy">✓ Restocked</span>`
+          : `<button class="mark-btn" data-mark="${r.productId}">Mark Restocked</button>`}
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-mark]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.mark;
+      const card = list.querySelector(`.row-card[data-id="${id}"]`);
+      card.classList.add('fading');
+      setTimeout(() => {
+        state.completed.add(id);
+        renderQueue();
+        updateKpisAfterAction();
+      }, 380);
+    });
+  });
+}
+
+function updateKpisAfterAction() {
+  const rows = state.rows.filter(r => !state.completed.has(r.productId));
+  const kpiValues = document.querySelectorAll('.kpi-card .value');
+  const critical = rows.filter(r => r.tone === 'critical').length;
+  const needsRestock = rows.filter(r => r.tone !== 'healthy').length;
+  const totalUnits = rows.reduce((sum, r) => sum + r.suggested, 0);
+  const bohAvailable = rows.reduce((sum, r) => sum + r.boh, 0);
+  const outOfStock = rows.filter(r => r.floor <= 0).length;
+  const healthy = state.rows.filter(r => r.tone === 'healthy' || state.completed.has(r.productId)).length;
+  const vals = [needsRestock, critical, totalUnits, bohAvailable, outOfStock, healthy];
+  kpiValues.forEach((el, i) => { el.textContent = vals[i]; });
+}
+</script>
+</body>
+</html>
