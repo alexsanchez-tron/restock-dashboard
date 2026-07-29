@@ -440,6 +440,12 @@ function stepActive(name) {
 }
 
 function handleFile(file) {
+  // Reset all filters/selections so a new upload always starts clean —
+  // otherwise leftover search/brand/KPI filters from a previous session
+  // silently narrow the new data down to almost nothing.
+  state.filters = { search: '', brand: '', category: '', priority: '', statusTab: 'all', showCompleted: false, kpiKey: null };
+  state.completed = new Set();
+
   stepActive('parse');
   const reader = new FileReader();
   reader.onload = () => {
